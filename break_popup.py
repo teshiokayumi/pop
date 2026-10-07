@@ -170,8 +170,9 @@ def show_popup(root: tk.Tk, message: str):
     # 画面中央に配置
     win.update_idletasks()
     w, h = win.winfo_width(), win.winfo_height()
-    x = (win.winfo_screenwidth() - w) // 2
-    y = (win.winfo_screenheight() - h) // 3
+    # 画面より大きくても上端・左端がはみ出さないようにする
+    x = max(0, (win.winfo_screenwidth() - w) // 2)
+    y = max(0, (win.winfo_screenheight() - h) // 3)
     win.geometry(f"+{x}+{y}")
 
     # 他のウィンドウより前面に出して気付かせる
