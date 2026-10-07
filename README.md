@@ -7,6 +7,21 @@
 - 「OK」ボタン / Enter / Esc で閉じられます
 - スリープ等で時刻ちょうどに PC が動いていなくても、30 分以内に復帰すれば表示します
 
+## 画像を表示する
+
+`break_popup.py` と同じフォルダに PNG 画像を置くと、ポップアップに表示されます。
+
+```
+C:\Users\User\OneDrive\デスクトップ\desktop-popup-break\
+├─ break_popup.py
+├─ start_windows.vbs
+└─ 休憩.png        ← 好きな PNG を置く (複数あれば毎回ランダムに1枚)
+```
+
+- 画面の 60% より大きい画像は自動で縮小します
+- PNG が無いときは文字だけのポップアップになります
+- 別のフォルダの画像を使う場合は `break_popup.py` の `IMAGE_DIR` を書き換えてください
+
 ## 動作確認
 
 ```sh

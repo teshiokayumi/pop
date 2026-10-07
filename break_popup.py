@@ -9,15 +9,27 @@ Python 標準ライブラリ (tkinter) だけで動くので、追加インス�
     python break_popup.py --test   # すぐにポップアップを1回表示して動作確認
 """
 
+from __future__ import annotations
+
 import argparse
 import datetime as dt
+import random
 import tkinter as tk
+from pathlib import Path
 
 # ポップアップを出す時刻 (時, 分, 表示するメッセージ)
 SCHEDULE = [
     (11, 0, "11:00 です。少し休憩しましょう ☕"),
     (12, 10, "12:10 です。お昼休憩の時間です 🍱"),
 ]
+
+# ポップアップに表示する PNG 画像を置くフォルダ。
+# 既定はこのスクリプトと同じフォルダ。別の場所にしたい場合は例のように書き換える。
+#   IMAGE_DIR = Path(r"C:\Users\User\OneDrive\デスクトップ\desktop-popup-break")
+IMAGE_DIR = Path(__file__).resolve().parent
+
+# 画像が大きすぎる場合は、画面のこの割合に収まるよう縮小する
+MAX_IMAGE_SCREEN_RATIO = 0.6
 
 # PC がスリープ等で時刻ちょうどに動いていなかった場合でも、
 # この分数以内に復帰すればポップアップを出す
@@ -55,11 +67,42 @@ class BreakNotifier:
         self.root.after(CHECK_INTERVAL_MS, self.check)
 
 
+def pick_image() -> Path | None:
+    """IMAGE_DIR にある PNG を1枚ランダムに選ぶ。無ければ None。"""
+    try:
+        pngs = sorted(p for p in IMAGE_DIR.iterdir() if p.suffix.lower() == ".png")
+    except OSError:
+        return None
+    return random.choice(pngs) if pngs else None
+
+
+def load_image(win: tk.Toplevel, path: Path) -> tk.PhotoImage | None:
+    """PNG を読み込み、画面に収まらなければ整数倍で縮小する。"""
+    try:
+        img = tk.PhotoImage(master=win, file=str(path))
+    except tk.TclError:
+        return None
+    max_w = int(win.winfo_screenwidth() * MAX_IMAGE_SCREEN_RATIO)
+    max_h = int(win.winfo_screenheight() * MAX_IMAGE_SCREEN_RATIO)
+    factor = max(-(-img.width() // max_w), -(-img.height() // max_h), 1)
+    if factor > 1:
+        img = img.subsample(factor, factor)
+    return img
+
+
 def show_popup(root: tk.Tk, message: str):
     win = tk.Toplevel(root)
     win.title("休憩のお知らせ")
     win.configure(bg="#fff8e1", padx=40, pady=30)
     win.resizable(False, False)
+
+    image_path = pick_image()
+    if image_path is not None:
+        img = load_image(win, image_path)
+        if img is not None:
+            label = tk.Label(win, image=img, bg="#fff8e1")
+            label.image = img  # 参照を保持しないと画像が消える
+            label.pack(pady=(0, 15))
 
     tk.Label(
         win, text="休憩タイム", font=("", 28, "bold"), bg="#fff8e1", fg="#e65100"
