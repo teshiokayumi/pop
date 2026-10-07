@@ -7,13 +7,18 @@ Python 標準ライブラリ (tkinter) だけで動くので、追加インス�
 使い方:
     python break_popup.py          # 常駐して、指定時刻にポップアップ
     python break_popup.py --test   # すぐにポップアップを1回表示して動作確認
+
+pythonw で動かすとエラーが画面に出ないので、動作状況は同じフォルダの
+break_popup.log に記録する。画像が出ないときはこのログを見る。
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import logging
 import random
+import sys
 import tkinter as tk
 from pathlib import Path
 
@@ -28,8 +33,13 @@ SCHEDULE = [
 #   IMAGE_DIR = Path(r"C:\Users\User\OneDrive\デスクトップ\desktop-popup-break")
 IMAGE_DIR = Path(__file__).resolve().parent
 
-# 画像が大きすぎる場合は、画面のこの割合に収まるよう縮小する
-MAX_IMAGE_SCREEN_RATIO = 0.6
+# 画像はこの大きさ (幅, 高さ ピクセル) に収まるよう縮小する
+MAX_IMAGE_SIZE = (360, 270)
+
+# 表示する画像の拡張子 (PNG 以外は Pillow が入っている場合のみ読める)
+IMAGE_SUFFIXES = {".png", ".gif", ".jpg", ".jpeg"}
+
+LOG_FILE = Path(__file__).resolve().parent / "break_popup.log"
 
 # PC がスリープ等で時刻ちょうどに動いていなかった場合でも、
 # この分数以内に復帰すればポップアップを出す
@@ -68,32 +78,64 @@ class BreakNotifier:
 
 
 def pick_image() -> Path | None:
-    """IMAGE_DIR にある PNG を1枚ランダムに選ぶ。無ければ None。"""
+    """IMAGE_DIR にある画像を1枚ランダムに選ぶ。無ければ None。"""
     try:
-        pngs = sorted(p for p in IMAGE_DIR.iterdir() if p.suffix.lower() == ".png")
+        images = sorted(
+            p for p in IMAGE_DIR.iterdir() if p.suffix.lower() in IMAGE_SUFFIXES
+        )
     except OSError:
+        logging.exception("画像フォルダを開けません: %s", IMAGE_DIR)
         return None
-    return random.choice(pngs) if pngs else None
+    if not images:
+        logging.warning("画像が見つかりません: %s", IMAGE_DIR)
+        return None
+    return random.choice(images)
 
 
-def load_image(win: tk.Toplevel, path: Path) -> tk.PhotoImage | None:
-    """PNG を読み込み、画面に収まらなければ整数倍で縮小する。"""
+def load_image(win: tk.Toplevel, path: Path):
+    """画像を読み込み、MAX_IMAGE_SIZE に収まるよう縮小する。失敗時は None。
+
+    Pillow があればそれで読み込む (どんな PNG/JPEG でも読めて、なめらかに縮小できる)。
+    無ければ tkinter 標準の PhotoImage で読み込み、整数分の1に縮小する。
+    """
+    max_w, max_h = MAX_IMAGE_SIZE
+    try:
+        from PIL import Image, ImageTk
+    except ImportError:
+        pass
+    else:
+        try:
+            with Image.open(path) as src:
+                src.thumbnail((max_w, max_h), Image.LANCZOS)
+                img = ImageTk.PhotoImage(src, master=win)
+            logging.info("画像を表示 (Pillow): %s", path)
+            return img
+        except Exception:
+            logging.exception("Pillow で画像を読めません: %s", path)
+            return None
+
     try:
         img = tk.PhotoImage(master=win, file=str(path))
     except tk.TclError:
+        logging.exception(
+            "画像を読めません: %s (pip install pillow で読めるようになる場合があります)",
+            path,
+        )
         return None
-    max_w = int(win.winfo_screenwidth() * MAX_IMAGE_SCREEN_RATIO)
-    max_h = int(win.winfo_screenheight() * MAX_IMAGE_SCREEN_RATIO)
     factor = max(-(-img.width() // max_w), -(-img.height() // max_h), 1)
     if factor > 1:
         img = img.subsample(factor, factor)
+    logging.info(
+        "画像を表示 (tkinter): %s 1/%d に縮小 → %dx%d",
+        path, factor, img.width(), img.height(),
+    )
     return img
 
 
 def show_popup(root: tk.Tk, message: str):
     win = tk.Toplevel(root)
     win.title("休憩のお知らせ")
-    win.configure(bg="#fff8e1", padx=40, pady=30)
+    win.configure(bg="#fff8e1", padx=24, pady=16)
     win.resizable(False, False)
 
     image_path = pick_image()
@@ -101,24 +143,26 @@ def show_popup(root: tk.Tk, message: str):
         img = load_image(win, image_path)
         if img is not None:
             label = tk.Label(win, image=img, bg="#fff8e1")
-            label.image = img  # 参照を保持しないと画像が消える
-            label.pack(pady=(0, 15))
+            # 参照を保持しないと画像がガベージコレクトされて空白になる
+            label.image = img
+            win.image = img
+            label.pack(pady=(0, 10))
 
     tk.Label(
-        win, text="休憩タイム", font=("", 28, "bold"), bg="#fff8e1", fg="#e65100"
-    ).pack(pady=(0, 10))
-    tk.Label(win, text=message, font=("", 16), bg="#fff8e1", fg="#333333").pack(
-        pady=(0, 20)
+        win, text="休憩タイム", font=("", 18, "bold"), bg="#fff8e1", fg="#e65100"
+    ).pack(pady=(0, 6))
+    tk.Label(win, text=message, font=("", 12), bg="#fff8e1", fg="#333333").pack(
+        pady=(0, 6)
     )
     tk.Label(
         win,
         text=dt.datetime.now().strftime("%Y/%m/%d %H:%M"),
-        font=("", 11),
+        font=("", 9),
         bg="#fff8e1",
         fg="#888888",
-    ).pack(pady=(0, 20))
+    ).pack(pady=(0, 10))
 
-    btn = tk.Button(win, text="OK", font=("", 14), width=10, command=win.destroy)
+    btn = tk.Button(win, text="OK", font=("", 11), width=8, command=win.destroy)
     btn.pack()
     win.bind("<Return>", lambda _e: win.destroy())
     win.bind("<Escape>", lambda _e: win.destroy())
@@ -139,14 +183,37 @@ def show_popup(root: tk.Tk, message: str):
     win.bell()
 
 
+def enable_windows_dpi_awareness():
+    """Windows の拡大表示 (125%, 150% など) で画面がぼやけて巨大化するのを防ぐ。"""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
+
 def main():
+    logging.basicConfig(
+        filename=LOG_FILE,
+        filemode="w",
+        encoding="utf-8",
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    logging.info("起動: python %s / 画像フォルダ %s", sys.version.split()[0], IMAGE_DIR)
+
     parser = argparse.ArgumentParser(description="休憩お知らせポップアップ")
     parser.add_argument(
         "--test", action="store_true", help="すぐにポップアップを表示して終了する"
     )
     args = parser.parse_args()
 
+    enable_windows_dpi_awareness()
     root = tk.Tk()
+    logging.info("Tk %s", root.tk.call("info", "patchlevel"))
     root.withdraw()  # メインウィンドウは隠して常駐
 
     if args.test:
