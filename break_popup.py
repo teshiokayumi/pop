@@ -114,20 +114,27 @@ def load_image(win: tk.Toplevel, path: Path):
             logging.exception("Pillow で画像を読めません: %s", path)
             return None
 
+    # 形式を明示する。Tk 9 は形式を自動判定すると、AI 生成画像などに埋め込まれた
+    # メタデータ (C2PA) 内の SVG ロゴを本体と誤認して表示してしまうため。
+    fmt = {".png": "png", ".gif": "gif"}.get(path.suffix.lower())
     try:
-        img = tk.PhotoImage(master=win, file=str(path))
+        if fmt:
+            img = tk.PhotoImage(master=win, file=str(path), format=fmt)
+        else:
+            img = tk.PhotoImage(master=win, file=str(path))
     except tk.TclError:
         logging.exception(
             "画像を読めません: %s (pip install pillow で読めるようになる場合があります)",
             path,
         )
         return None
-    factor = max(-(-img.width() // max_w), -(-img.height() // max_h), 1)
+    orig_w, orig_h = img.width(), img.height()
+    factor = max(-(-orig_w // max_w), -(-orig_h // max_h), 1)
     if factor > 1:
         img = img.subsample(factor, factor)
     logging.info(
-        "画像を表示 (tkinter): %s 1/%d に縮小 → %dx%d",
-        path, factor, img.width(), img.height(),
+        "画像を表示 (tkinter): %s %dx%d を 1/%d に縮小 → %dx%d",
+        path, orig_w, orig_h, factor, img.width(), img.height(),
     )
     return img
 
